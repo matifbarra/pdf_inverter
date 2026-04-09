@@ -105,7 +105,13 @@ def selective_invert(
     minc = np.minimum(np.minimum(r, g), b)
     channel_range = maxc - minc
 
-    neutral = channel_range <= neutral_color_threshold
+    # Some highlighter strokes are pale and can look almost neutral.
+    # Keep lightly chromatic bright tones unchanged so they remain readable on white paper.
+    safe_max = np.maximum(maxc, 1.0)
+    saturation = channel_range / safe_max
+    soft_highlight_color = (channel_range >= 8.0) & (saturation >= 0.06) & (luminance >= 110.0)
+
+    neutral = (channel_range <= neutral_color_threshold) & ~soft_highlight_color
     dark_neutral = neutral & (luminance <= bg_value_threshold)
     light_neutral = neutral & (luminance >= light_value_threshold)
 
