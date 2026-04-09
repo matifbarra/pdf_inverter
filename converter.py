@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 from pathlib import Path
 
 import fitz  # PyMuPDF
@@ -16,6 +17,7 @@ DEFAULT_SETTINGS = {
     "neutral_color_threshold": 20,
     "bw_threshold": 150,
     "jpeg_quality": 85,
+    "preserve_images": True,
 }
 
 
@@ -32,6 +34,7 @@ def selective_invert(
     neutral_color_threshold: int = 20,
     mode: str = "smart",
     bw_threshold: int = 150,
+    preserve_mask: np.ndarray | None = None,
 ) -> Image.Image:
     rgb = np.asarray(img.convert("RGB"), dtype=np.uint8)
 
@@ -55,14 +58,50 @@ def selective_invert(
     if mode == "smart":
         out[dark_neutral] = [255, 255, 255]
         out[light_neutral] = [0, 0, 0]
+        if preserve_mask is not None:
+            out[preserve_mask] = rgb[preserve_mask]
         return Image.fromarray(out)
 
     if mode == "bw":
         inverted_luminance = 255.0 - luminance
         bw = np.where(neutral & (inverted_luminance <= bw_threshold), 0, 255).astype(np.uint8)
-        return Image.fromarray(bw, mode="L").convert("1", dither=Image.Dither.NONE)
+        bw_rgb = np.stack([bw, bw, bw], axis=-1)
+        if preserve_mask is not None:
+            bw_rgb[preserve_mask] = rgb[preserve_mask]
+        return Image.fromarray(bw_rgb, mode="RGB")
 
     raise ValueError(f"Unsupported mode: {mode}")
+
+
+def _image_mask_from_page(page: fitz.Page, pix_width: int, pix_height: int) -> np.ndarray:
+    mask = np.zeros((pix_height, pix_width), dtype=bool)
+    page_rect = page.rect
+
+    if page_rect.width <= 0 or page_rect.height <= 0:
+        return mask
+
+    scale_x = pix_width / float(page_rect.width)
+    scale_y = pix_height / float(page_rect.height)
+
+    page_dict = page.get_text("dict")
+    for block in page_dict.get("blocks", []):
+        if block.get("type") != 1:
+            continue
+
+        bbox = block.get("bbox")
+        if not bbox or len(bbox) != 4:
+            continue
+
+        x0, y0, x1, y1 = bbox
+        left = max(0, min(pix_width, int(math.floor(x0 * scale_x))))
+        top = max(0, min(pix_height, int(math.floor(y0 * scale_y))))
+        right = max(0, min(pix_width, int(math.ceil(x1 * scale_x))))
+        bottom = max(0, min(pix_height, int(math.ceil(y1 * scale_y))))
+
+        if right > left and bottom > top:
+            mask[top:bottom, left:right] = True
+
+    return mask
 
 
 def process_pdf_bytes(
@@ -74,6 +113,7 @@ def process_pdf_bytes(
     mode: str,
     bw_threshold: int,
     jpeg_quality: int,
+    preserve_images: bool = True,
 ) -> bytes:
     src_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     out_doc = fitz.open()
@@ -86,6 +126,7 @@ def process_pdf_bytes(
             page = src_doc.load_page(page_index)
             pix = page.get_pixmap(matrix=matrix, alpha=False)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            preserve_mask = _image_mask_from_page(page, pix.width, pix.height) if preserve_images else None
 
             processed = selective_invert(
                 img,
@@ -94,6 +135,7 @@ def process_pdf_bytes(
                 neutral_color_threshold=neutral_color_threshold,
                 mode=mode,
                 bw_threshold=bw_threshold,
+                preserve_mask=preserve_mask,
             )
 
             width_points = processed.width * 72.0 / dpi
@@ -119,6 +161,7 @@ def preview_first_page(
     neutral_color_threshold: int,
     mode: str,
     bw_threshold: int,
+    preserve_images: bool = True,
 ) -> Image.Image:
     src_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     try:
@@ -132,6 +175,7 @@ def preview_first_page(
         page = src_doc.load_page(0)
         pix = page.get_pixmap(matrix=matrix, alpha=False)
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        preserve_mask = _image_mask_from_page(page, pix.width, pix.height) if preserve_images else None
 
         processed = selective_invert(
             img,
@@ -140,6 +184,7 @@ def preview_first_page(
             neutral_color_threshold=neutral_color_threshold,
             mode=mode,
             bw_threshold=bw_threshold,
+            preserve_mask=preserve_mask,
         )
 
         preview = processed.copy()

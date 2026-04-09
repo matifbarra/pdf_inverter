@@ -211,6 +211,7 @@ def get_preview_image(
     neutral_color_threshold: int,
     mode: str,
     bw_threshold: int,
+    preserve_images: bool,
 ):
     return preview_first_page(
         pdf_bytes=pdf_bytes,
@@ -220,6 +221,7 @@ def get_preview_image(
         neutral_color_threshold=neutral_color_threshold,
         mode=mode,
         bw_threshold=bw_threshold,
+        preserve_images=preserve_images,
     )
 
 
@@ -250,6 +252,11 @@ def main() -> None:
         light_value_threshold = st.slider("Light threshold", 0, 255, key="light_value_threshold")
         neutral_color_threshold = st.slider("Neutral threshold", 0, 100, key="neutral_color_threshold")
         bw_threshold = st.slider("B/W threshold", 0, 255, key="bw_threshold")
+        preserve_images = st.checkbox(
+            "Keep embedded images unchanged",
+            key="preserve_images",
+            help="Detects image blocks in the PDF and keeps those areas without inversion.",
+        )
         jpeg_quality = st.slider(
             "JPEG quality",
             min_value=50,
@@ -293,6 +300,7 @@ def main() -> None:
                 neutral_color_threshold=neutral_color_threshold,
                 mode=mode,
                 bw_threshold=bw_threshold,
+                preserve_images=preserve_images,
             )
             st.image(preview_image, caption="First page preview", use_container_width=True)
         except Exception as exc:
@@ -312,6 +320,7 @@ def main() -> None:
                         mode=mode,
                         bw_threshold=bw_threshold,
                         jpeg_quality=jpeg_quality,
+                        preserve_images=preserve_images,
                     )
                 except Exception as exc:
                     st.error(f"Error processing PDF: {exc}")
