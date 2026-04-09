@@ -111,6 +111,13 @@ def selective_invert(
     saturation = channel_range / safe_max
     soft_highlight_color = (channel_range >= 8.0) & (saturation >= 0.06) & (luminance >= 110.0)
 
+    # Dark saturated fills (highlighters, blocks, arrows) are often hard to read on white paper.
+    # Lift those colors toward pastel tones while preserving hue.
+    dark_colored = (saturation >= 0.12) & (luminance < 165.0)
+    darkness = np.clip((165.0 - luminance) / 165.0, 0.0, 1.0)
+    sat_boost = np.clip((saturation - 0.12) / 0.5, 0.0, 1.0)
+    lift = np.clip(0.25 + (0.60 * darkness) + (0.20 * sat_boost), 0.0, 0.85)
+
     neutral = (channel_range <= neutral_color_threshold) & ~soft_highlight_color
     dark_neutral = neutral & (luminance <= bg_value_threshold)
     light_neutral = neutral & (luminance >= light_value_threshold)
@@ -122,6 +129,13 @@ def selective_invert(
     if mode == "smart":
         out[dark_neutral] = [255, 255, 255]
         out[light_neutral] = [0, 0, 0]
+
+        out_float = out.astype(np.float32)
+        for channel_index in range(3):
+            channel = out_float[:, :, channel_index]
+            channel[dark_colored] = channel[dark_colored] + (255.0 - channel[dark_colored]) * lift[dark_colored]
+        out = np.clip(out_float, 0.0, 255.0).astype(np.uint8)
+
         if preserve_mask is not None:
             out[preserve_mask] = rgb[preserve_mask]
         return Image.fromarray(out)
