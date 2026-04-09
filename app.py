@@ -235,6 +235,11 @@ def main() -> None:
         if key not in st.session_state:
             st.session_state[key] = value
 
+    if "uploaded_pdf_bytes" not in st.session_state:
+        st.session_state.uploaded_pdf_bytes = None
+    if "uploaded_pdf_name" not in st.session_state:
+        st.session_state.uploaded_pdf_name = None
+
     render_hero()
 
     main_col, side_col = st.columns([1.45, 0.85], gap="large")
@@ -280,22 +285,38 @@ def main() -> None:
         st.markdown("<div class='surface'>", unsafe_allow_html=True)
         st.subheader("Upload your PDF")
         st.caption("Drag and drop a file or browse from your computer.")
-        uploaded = st.file_uploader("Choose a PDF", type=["pdf"], label_visibility="collapsed")
+        uploaded = st.file_uploader(
+            "Choose a PDF",
+            type=["pdf"],
+            label_visibility="collapsed",
+            key="pdf_uploader",
+        )
 
-        if uploaded is None:
+        if uploaded is not None:
+            st.session_state.uploaded_pdf_bytes = uploaded.getvalue()
+            st.session_state.uploaded_pdf_name = uploaded.name
+
+        pdf_bytes = st.session_state.uploaded_pdf_bytes
+        pdf_name = st.session_state.uploaded_pdf_name
+
+        if pdf_bytes is None or pdf_name is None:
             st.info("No PDF selected yet.")
             st.markdown("</div>", unsafe_allow_html=True)
             render_footer()
             return
 
-        pdf_bytes = uploaded.getvalue()
         size_kb = len(pdf_bytes) / 1024 if pdf_bytes else 0
         info_col1, info_col2, info_col3 = st.columns(3)
-        info_col1.metric("File", uploaded.name)
+        info_col1.metric("File", pdf_name)
         info_col2.metric("Size", f"{size_kb:.1f} KB")
         info_col3.metric("Pages", page_selection.strip() if page_selection.strip() else "All")
 
-        st.success(f"Ready to convert: {uploaded.name}")
+        st.success(f"Ready to convert: {pdf_name}")
+
+        if st.button("Clear loaded PDF"):
+            st.session_state.uploaded_pdf_bytes = None
+            st.session_state.uploaded_pdf_name = None
+            st.rerun()
 
         render_preview_notice()
 
@@ -338,7 +359,7 @@ def main() -> None:
                     render_footer()
                     return
 
-            output_name = suggested_output_name(uploaded.name, mode)
+            output_name = suggested_output_name(pdf_name, mode)
             download_col, message_col = st.columns([1, 1])
             with download_col:
                 st.download_button(
