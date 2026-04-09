@@ -19,6 +19,7 @@ DEFAULT_SETTINGS = {
     "jpeg_quality": 85,
     "preserve_images": True,
     "page_selection": "",
+    "fill_whitening_strength": 70,
 }
 
 
@@ -93,6 +94,7 @@ def selective_invert(
     mode: str = "smart",
     bw_threshold: int = 150,
     preserve_mask: np.ndarray | None = None,
+    fill_whitening_strength: int = 70,
 ) -> Image.Image:
     rgb = np.asarray(img.convert("RGB"), dtype=np.uint8)
 
@@ -118,6 +120,10 @@ def selective_invert(
     sat_boost = np.clip((saturation - 0.12) / 0.5, 0.0, 1.0)
     lift = np.clip(0.25 + (0.60 * darkness) + (0.20 * sat_boost), 0.0, 0.85)
 
+    white_push = np.clip(fill_whitening_strength / 100.0, 0.0, 1.0)
+    very_dark_colored = (saturation >= 0.10) & (luminance < 100.0)
+    white_lift = np.clip((0.30 + (0.70 * darkness)) * white_push, 0.0, 0.95)
+
     neutral = (channel_range <= neutral_color_threshold) & ~soft_highlight_color
     dark_neutral = neutral & (luminance <= bg_value_threshold)
     light_neutral = neutral & (luminance >= light_value_threshold)
@@ -134,6 +140,10 @@ def selective_invert(
         for channel_index in range(3):
             channel = out_float[:, :, channel_index]
             channel[dark_colored] = channel[dark_colored] + (255.0 - channel[dark_colored]) * lift[dark_colored]
+            channel[very_dark_colored] = (
+                channel[very_dark_colored]
+                + (255.0 - channel[very_dark_colored]) * white_lift[very_dark_colored]
+            )
         out = np.clip(out_float, 0.0, 255.0).astype(np.uint8)
 
         if preserve_mask is not None:
@@ -193,6 +203,7 @@ def process_pdf_bytes(
     jpeg_quality: int,
     preserve_images: bool = True,
     page_selection: str | None = None,
+    fill_whitening_strength: int = 70,
 ) -> bytes:
     src_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     out_doc = fitz.open()
@@ -216,6 +227,7 @@ def process_pdf_bytes(
                 mode=mode,
                 bw_threshold=bw_threshold,
                 preserve_mask=preserve_mask,
+                fill_whitening_strength=fill_whitening_strength,
             )
 
             width_points = processed.width * 72.0 / dpi
@@ -243,6 +255,7 @@ def preview_first_page(
     bw_threshold: int,
     preserve_images: bool = True,
     page_selection: str | None = None,
+    fill_whitening_strength: int = 70,
 ) -> Image.Image:
     src_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     try:
@@ -268,6 +281,7 @@ def preview_first_page(
             mode=mode,
             bw_threshold=bw_threshold,
             preserve_mask=preserve_mask,
+            fill_whitening_strength=fill_whitening_strength,
         )
 
         preview = processed.copy()
