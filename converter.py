@@ -18,7 +18,65 @@ DEFAULT_SETTINGS = {
     "bw_threshold": 150,
     "jpeg_quality": 85,
     "preserve_images": True,
+    "page_selection": "",
 }
+
+
+def _parse_page_selection(total_pages: int, page_selection: str | None) -> list[int]:
+    if total_pages <= 0:
+        return []
+
+    if page_selection is None or not page_selection.strip():
+        return list(range(total_pages))
+
+    selected: list[int] = []
+    seen: set[int] = set()
+
+    tokens = [chunk.strip() for chunk in page_selection.split(",") if chunk.strip()]
+    if not tokens:
+        raise ValueError("Page selection is empty. Use values like 1-3,5,8.")
+
+    for token in tokens:
+        if "-" in token:
+            parts = token.split("-", 1)
+            if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+                raise ValueError(f"Invalid range '{token}'. Use format like 2-6.")
+
+            try:
+                start_page = int(parts[0].strip())
+                end_page = int(parts[1].strip())
+            except ValueError as exc:
+                raise ValueError(f"Invalid range '{token}'. Use numbers only.") from exc
+
+            if start_page > end_page:
+                raise ValueError(f"Invalid range '{token}'. Start must be <= end.")
+            if start_page < 1 or end_page > total_pages:
+                raise ValueError(f"Page range '{token}' is outside 1-{total_pages}.")
+
+            for page_number in range(start_page, end_page + 1):
+                page_index = page_number - 1
+                if page_index not in seen:
+                    seen.add(page_index)
+                    selected.append(page_index)
+            continue
+
+        try:
+            page_number = int(token)
+        except ValueError as exc:
+            raise ValueError(f"Invalid page '{token}'. Use numbers and ranges like 1-3,5.") from exc
+
+        if page_number < 1 or page_number > total_pages:
+            raise ValueError(f"Page '{token}' is outside 1-{total_pages}.")
+
+        page_index = page_number - 1
+        if page_index not in seen:
+            seen.add(page_index)
+            selected.append(page_index)
+
+    if not selected:
+        raise ValueError("No valid pages selected.")
+
+    return selected
 
 
 def suggested_output_name(input_name: str, mode: str) -> str:
@@ -114,6 +172,7 @@ def process_pdf_bytes(
     bw_threshold: int,
     jpeg_quality: int,
     preserve_images: bool = True,
+    page_selection: str | None = None,
 ) -> bytes:
     src_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     out_doc = fitz.open()
@@ -121,8 +180,9 @@ def process_pdf_bytes(
     try:
         scale = dpi / 72.0
         matrix = fitz.Matrix(scale, scale)
+        selected_pages = _parse_page_selection(len(src_doc), page_selection)
 
-        for page_index in range(len(src_doc)):
+        for page_index in selected_pages:
             page = src_doc.load_page(page_index)
             pix = page.get_pixmap(matrix=matrix, alpha=False)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
@@ -162,6 +222,7 @@ def preview_first_page(
     mode: str,
     bw_threshold: int,
     preserve_images: bool = True,
+    page_selection: str | None = None,
 ) -> Image.Image:
     src_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     try:
@@ -171,8 +232,10 @@ def preview_first_page(
         preview_dpi = min(dpi, 140)
         scale = preview_dpi / 72.0
         matrix = fitz.Matrix(scale, scale)
+        selected_pages = _parse_page_selection(len(src_doc), page_selection)
+        first_page_index = selected_pages[0]
 
-        page = src_doc.load_page(0)
+        page = src_doc.load_page(first_page_index)
         pix = page.get_pixmap(matrix=matrix, alpha=False)
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         preserve_mask = _image_mask_from_page(page, pix.width, pix.height) if preserve_images else None

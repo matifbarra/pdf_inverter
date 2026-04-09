@@ -197,7 +197,7 @@ def render_side_tips() -> None:
 
 def render_preview_notice() -> None:
     st.markdown(
-        "<div class='preview-box'><strong>Preview</strong><br>The preview shows the first page using the current settings.</div>",
+        "<div class='preview-box'><strong>Preview</strong><br>The preview shows the first selected page using current settings.</div>",
         unsafe_allow_html=True,
     )
 
@@ -212,6 +212,7 @@ def get_preview_image(
     mode: str,
     bw_threshold: int,
     preserve_images: bool,
+    page_selection: str,
 ):
     return preview_first_page(
         pdf_bytes=pdf_bytes,
@@ -222,6 +223,7 @@ def get_preview_image(
         mode=mode,
         bw_threshold=bw_threshold,
         preserve_images=preserve_images,
+        page_selection=page_selection,
     )
 
 
@@ -252,6 +254,12 @@ def main() -> None:
         light_value_threshold = st.slider("Light threshold", 0, 255, key="light_value_threshold")
         neutral_color_threshold = st.slider("Neutral threshold", 0, 100, key="neutral_color_threshold")
         bw_threshold = st.slider("B/W threshold", 0, 255, key="bw_threshold")
+        page_selection = st.text_input(
+            "Pages to convert (optional)",
+            key="page_selection",
+            placeholder="All pages, or: 1-3,5,8",
+            help="Leave empty to convert all pages. Example: 1-3,5,8",
+        )
         preserve_images = st.checkbox(
             "Keep embedded images unchanged",
             key="preserve_images",
@@ -285,7 +293,7 @@ def main() -> None:
         info_col1, info_col2, info_col3 = st.columns(3)
         info_col1.metric("File", uploaded.name)
         info_col2.metric("Size", f"{size_kb:.1f} KB")
-        info_col3.metric("Mode", "Smart" if mode == "smart" else "B/W")
+        info_col3.metric("Pages", page_selection.strip() if page_selection.strip() else "All")
 
         st.success(f"Ready to convert: {uploaded.name}")
 
@@ -301,6 +309,7 @@ def main() -> None:
                 mode=mode,
                 bw_threshold=bw_threshold,
                 preserve_images=preserve_images,
+                page_selection=page_selection,
             )
             st.image(preview_image, caption="First page preview", use_container_width=True)
         except Exception as exc:
@@ -321,6 +330,7 @@ def main() -> None:
                         bw_threshold=bw_threshold,
                         jpeg_quality=jpeg_quality,
                         preserve_images=preserve_images,
+                        page_selection=page_selection,
                     )
                 except Exception as exc:
                     st.error(f"Error processing PDF: {exc}")
