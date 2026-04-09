@@ -213,7 +213,6 @@ def get_preview_image(
     bw_threshold: int,
     preserve_images: bool,
     page_selection: str,
-    fill_whitening_strength: int,
 ):
     return preview_first_page(
         pdf_bytes=pdf_bytes,
@@ -225,7 +224,6 @@ def get_preview_image(
         bw_threshold=bw_threshold,
         preserve_images=preserve_images,
         page_selection=page_selection,
-        fill_whitening_strength=fill_whitening_strength,
     )
 
 
@@ -266,13 +264,6 @@ def main() -> None:
             "Keep embedded images unchanged",
             key="preserve_images",
             help="Detects image blocks in the PDF and keeps those areas without inversion.",
-        )
-        fill_whitening_strength = st.slider(
-            "Dark color fill to white",
-            min_value=0,
-            max_value=100,
-            key="fill_whitening_strength",
-            help="Higher values push dark colored fills toward white for cleaner print backgrounds.",
         )
         jpeg_quality = st.slider(
             "JPEG quality",
@@ -319,7 +310,6 @@ def main() -> None:
                 bw_threshold=bw_threshold,
                 preserve_images=preserve_images,
                 page_selection=page_selection,
-                fill_whitening_strength=fill_whitening_strength,
             )
             st.image(preview_image, caption="First page preview", use_container_width=True)
         except Exception as exc:
@@ -341,7 +331,6 @@ def main() -> None:
                         jpeg_quality=jpeg_quality,
                         preserve_images=preserve_images,
                         page_selection=page_selection,
-                        fill_whitening_strength=fill_whitening_strength,
                     )
                 except Exception as exc:
                     st.error(f"Error processing PDF: {exc}")
