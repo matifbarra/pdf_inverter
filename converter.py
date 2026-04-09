@@ -103,6 +103,27 @@ def _dilate_mask(mask: np.ndarray, iterations: int = 1) -> np.ndarray:
     return expanded
 
 
+def _local_ratio(mask: np.ndarray, radius: int = 4) -> np.ndarray:
+    if radius <= 0:
+        return mask.astype(np.float32)
+
+    binary = mask.astype(np.float32)
+    padded = np.pad(binary, ((radius, radius), (radius, radius)), mode="constant", constant_values=0.0)
+    integral = np.cumsum(np.cumsum(padded, axis=0), axis=1)
+    integral = np.pad(integral, ((1, 0), (1, 0)), mode="constant", constant_values=0.0)
+
+    k = (2 * radius) + 1
+    area = float(k * k)
+
+    total = (
+        integral[k:, k:]
+        - integral[:-k, k:]
+        - integral[k:, :-k]
+        + integral[:-k, :-k]
+    )
+    return total / area
+
+
 def selective_invert(
     img: Image.Image,
     bg_value_threshold: int = 60,
@@ -128,27 +149,30 @@ def selective_invert(
     dark_neutral = neutral & (luminance <= bg_value_threshold)
     light_neutral = neutral & (luminance >= light_value_threshold)
 
-    # Detect dark colored highlight blobs and include nearby strokes so background and
-    # letters are transformed together.
-    dark_colored = (saturation >= 0.10) & (luminance <= 140.0)
-    highlight_region = _dilate_mask(dark_colored, iterations=2)
-    colored_region = highlight_region & (saturation >= 0.06) & (channel_range >= 6.0)
+    # Distinguish wide highlighted fills from thin handwriting strokes.
+    colored = (saturation >= 0.08) & (channel_range >= 8.0)
+    dark_colored = colored & (luminance <= 155.0)
+    dense_ratio = _local_ratio(dark_colored, radius=5)
+    highlight_fill = dark_colored & (dense_ratio >= 0.32)
+    highlight_region = _dilate_mask(highlight_fill, iterations=2)
 
     inverted = 255 - rgb
     out = rgb.copy()
     out[neutral] = inverted[neutral]
-    out[colored_region] = inverted[colored_region]
+    out[highlight_region] = inverted[highlight_region]
 
     if mode == "smart":
         out[dark_neutral] = [255, 255, 255]
         out[light_neutral] = [0, 0, 0]
 
-        # Slightly lift inverted dark fills so they print closer to white paper.
-        lift = np.clip(0.12 + ((140.0 - luminance) / 140.0) * 0.28, 0.0, 0.35)
+        # Lift inverted fills to pastel tones for better print readability.
+        lift = np.clip(0.20 + ((170.0 - luminance) / 170.0) * 0.40, 0.0, 0.55)
         out_float = out.astype(np.float32)
         for channel_index in range(3):
             channel = out_float[:, :, channel_index]
-            channel[dark_colored] = channel[dark_colored] + (255.0 - channel[dark_colored]) * lift[dark_colored]
+            channel[highlight_fill] = (
+                channel[highlight_fill] + (255.0 - channel[highlight_fill]) * lift[highlight_fill]
+            )
         out = np.clip(out_float, 0.0, 255.0).astype(np.uint8)
 
         if preserve_mask is not None:
